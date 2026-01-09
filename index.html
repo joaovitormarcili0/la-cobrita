@@ -1,0 +1,763 @@
+<!DOCTYPE html>
+<html lang="pt-pt">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>La Cobrita</title>
+    <!-- Fonte Pixelada do Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <!-- Importando a Engine de Física (Matter.js) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+    <style>
+        /* --- ESTILO GERAL --- */
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #2d3436;
+            /* Fundo escuro pastel */
+            color: #dfe6e9;
+            font-family: 'Press Start 2P', cursive;
+            /* Fonte retro */
+            overflow: hidden;
+            /* Impede scroll */
+            touch-action: none;
+            /* Impede gestos de zoom/scroll no mobile */
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #gameCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+            /* Fica atrás da UI */
+            background-color: #2d3436;
+            image-rendering: pixelated;
+            /* Mantém pixels nítidos ao redimensionar */
+        }
+
+        #ui-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            /* Permite clicar através do container */
+            z-index: 10;
+        }
+
+        /* Estilo dos elementos que sofrem gravidade */
+        .physics-element {
+            position: absolute;
+            background: #636e72;
+            border: 4px solid #fab1a0;
+            color: #fab1a0;
+            padding: 20px 10px;
+            text-align: center;
+            line-height: 1.5;
+            box-shadow: 4px 4px 0px rgba(0, 0, 0, 0.3);
+            transform-origin: center center;
+            pointer-events: auto;
+            /* Reativa cliques nos botões */
+            user-select: none;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            white-space: nowrap;
+        }
+
+        .physics-element:hover {
+            background-color: #b2bec3;
+            color: #fff;
+            border-color: #fff;
+        }
+
+        .physics-element span {
+            display: block;
+            margin-top: 10px;
+            font-size: 0.6rem;
+            color: #ffeaa7;
+        }
+
+        /* Título - Centralização Inicial */
+        #title-box {
+            font-size: 1.5rem;
+            top: 20%;
+            left: 50%;
+            width: 380px;
+            height: 100px;
+            transform: translate(-50%, -50%);
+            border-color: #74b9ff;
+            color: #74b9ff;
+            background: #2d3436;
+        }
+
+        /* Botões */
+        .mode-btn {
+            width: 180px;
+            height: 140px;
+            font-size: 0.9rem;
+            top: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        #pc-option {
+            left: 35%;
+        }
+
+        #mobile-option {
+            left: 65%;
+        }
+
+        #hub-option {
+            width: auto;
+            min-width: 280px;
+            height: 60px;
+            top: 75%;
+            left: 50%;
+            font-size: 0.8rem;
+            transform: translate(-50%, -50%);
+            padding: 0 10px;
+        }
+
+        /* Ajustes para ecrãs menores (Mobile) */
+        @media (max-width: 768px) {
+            #title-box {
+                font-size: 1rem;
+                width: 90%;
+                top: 15%;
+            }
+
+            #pc-option,
+            #mobile-option {
+                width: 220px;
+                height: 100px;
+                left: 50%;
+            }
+
+            #pc-option {
+                top: 40%;
+            }
+
+            #mobile-option {
+                top: 60%;
+            }
+        }
+
+        /* Placar */
+        #score-board {
+            display: none;
+            /* Oculto no menu */
+            position: absolute;
+            top: 15px;
+            left: 0;
+            width: 100%;
+            text-align: center;
+            z-index: 20;
+            font-size: 1.2rem;
+            color: #55efc4;
+            text-shadow: 2px 2px 0 #000;
+            pointer-events: none;
+        }
+
+        .hidden {
+            opacity: 0;
+            visibility: hidden;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="score-board">SCORE: 0</div>
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="ui-container">
+        <div id="title-box" class="physics-element hidden">
+            LA COBRITA
+        </div>
+        <div id="pc-option" class="physics-element mode-btn hidden">
+            PC
+            <span>(SETAS)</span>
+        </div>
+        <div id="mobile-option" class="physics-element mode-btn hidden">
+            MOBILE
+            <span>(SWIPE)</span>
+        </div>
+        <div id="hub-option" class="physics-element mode-btn hidden">
+            VOLTAR AO HUB DE JOGOS
+        </div>
+    </div>
+
+    <script>
+        (function () {
+            // ==========================================
+            // 1. ENGINE DE FÍSICA (MATTER.JS) - UI
+            // ==========================================
+            const Engine = Matter.Engine,
+                World = Matter.World,
+                Bodies = Matter.Bodies;
+
+            const engine = Engine.create();
+            const world = engine.world;
+
+            let domEntities = [];
+            let floorBody = null;
+            let walls = [];
+            let screenWidth = window.innerWidth;
+            let screenHeight = window.innerHeight;
+
+            // Configura as paredes invisíveis para o menu
+            function setupBoundaries() {
+                if (floorBody) World.remove(world, floorBody);
+                walls.forEach(w => World.remove(world, w));
+                walls = [];
+
+                // Chão (será removido ao iniciar o jogo)
+                floorBody = Bodies.rectangle(screenWidth / 2, screenHeight + 100, screenWidth, 200, { isStatic: true });
+                // Paredes laterais altas para guiar a queda
+                const left = Bodies.rectangle(-100, screenHeight / 2, 200, screenHeight * 4, { isStatic: true });
+                const right = Bodies.rectangle(screenWidth + 100, screenHeight / 2, 200, screenHeight * 4, { isStatic: true });
+
+                walls = [left, right];
+                World.add(world, [floorBody, ...walls]);
+            }
+
+            // Cria corpo físico atrelado ao elemento HTML
+            function createPhysicsBody(elementId, isStatic = true) {
+                const el = document.getElementById(elementId);
+                if (!el) return;
+                el.classList.remove('hidden');
+
+                // Reset visual CSS
+                el.style.transform = 'translate(-50%, -50%)';
+                el.style.left = '';
+                el.style.top = '';
+
+                // Lê posição e tamanho reais
+                const rect = el.getBoundingClientRect();
+                const x = rect.left + rect.width / 2;
+                const y = rect.top + rect.height / 2;
+
+                const body = Bodies.rectangle(x, y, rect.width, rect.height, {
+                    isStatic: isStatic,
+                    restitution: 0.6,
+                    friction: 0.5,
+                    angle: 0
+                });
+
+                World.add(world, body);
+                domEntities.push({ element: el, body: body });
+
+                // Passa controle de posição para JS
+                el.style.left = "0";
+                el.style.top = "0";
+                el.style.margin = "0";
+                el.style.transform = `translate(${x - rect.width / 2}px, ${y - rect.height / 2}px)`;
+
+                return body;
+            }
+
+            // Inicializa o Menu Principal
+            function initMenu() {
+                stopGame(); // Garante que o jogo anterior parou
+
+                document.getElementById('score-board').style.display = 'none';
+
+                // Limpa física anterior
+                domEntities.forEach(ent => World.remove(world, ent.body));
+                domEntities = [];
+                setupBoundaries();
+
+                // Cria elementos físicos (espera fonte carregar para tamanho correto)
+                document.fonts.ready.then(() => {
+                    createPhysicsBody('title-box');
+                    createPhysicsBody('pc-option');
+                    createPhysicsBody('mobile-option');
+                    createPhysicsBody('hub-option');
+                });
+
+                // Configura botões de Jogo
+                const pcBtn = document.getElementById('pc-option');
+                const mobileBtn = document.getElementById('mobile-option');
+                const startGameAction = () => {
+                    if (gameRunning) return;
+                    startChaosAndGame();
+                };
+
+                [pcBtn, mobileBtn].forEach(btn => {
+                    // Clone para remover listeners antigos
+                    let newBtn = btn.cloneNode(true);
+                    btn.parentNode.replaceChild(newBtn, btn);
+                    newBtn = document.getElementById(btn.id);
+
+                    // Atualiza referência na lista de entidades
+                    const entIndex = domEntities.findIndex(e => e.element.id === btn.id);
+                    if (entIndex > -1) domEntities[entIndex].element = newBtn;
+
+                    newBtn.addEventListener('click', startGameAction);
+                    newBtn.addEventListener('touchstart', (e) => {
+                        e.preventDefault();
+                        startGameAction();
+                    });
+                });
+
+                // Configura botão Hub (Link)
+                const hubBtn = document.getElementById('hub-option');
+                let newHubBtn = hubBtn.cloneNode(true);
+                hubBtn.parentNode.replaceChild(newHubBtn, hubBtn);
+                newHubBtn = document.getElementById('hub-option');
+
+                const hubEntIndex = domEntities.findIndex(e => e.element.id === 'hub-option');
+                if (hubEntIndex > -1) domEntities[hubEntIndex].element = newHubBtn;
+
+                const goToHub = () => window.location.href = 'https://linktr.ee/joaovitormarcilio';
+
+                newHubBtn.addEventListener('click', goToHub);
+                newHubBtn.addEventListener('touchstart', (e) => {
+                    e.preventDefault();
+                    goToHub();
+                });
+
+                // Inicia animação da cobrinha de fundo
+                startMenuAnimation();
+            }
+
+            // Transição Menu -> Jogo (Gravidade)
+            function startChaosAndGame() {
+                stopMenuAnimation();
+
+                // Ativa física (gravidade) nos botões
+                domEntities.forEach(ent => {
+                    Matter.Body.setStatic(ent.body, false);
+                    // Empurrãozinho aleatório
+                    Matter.Body.applyForce(ent.body, ent.body.position, {
+                        x: (Math.random() - 0.5) * 0.05,
+                        y: 0.02
+                    });
+                });
+
+                // Remove o chão após um instante para os botões caírem da tela
+                setTimeout(() => {
+                    if (floorBody) World.remove(world, floorBody);
+                }, 100);
+
+                initSnakeGame();
+            }
+
+            // Loop da Física
+            (function renderPhysics() {
+                Engine.update(engine, 1000 / 60);
+                domEntities.forEach(ent => {
+                    if (!ent.element) return;
+                    const { x, y } = ent.body.position;
+                    const angle = ent.body.angle;
+                    ent.element.style.transform = `translate(${x - ent.element.offsetWidth / 2}px, ${y - ent.element.offsetHeight / 2}px) rotate(${angle}rad)`;
+                });
+                requestAnimationFrame(renderPhysics);
+            })();
+
+            // ==========================================
+            // 2. LÓGICA DO JOGO (CANVAS)
+            // ==========================================
+            const canvas = document.getElementById('gameCanvas');
+            const ctx = canvas.getContext('2d');
+
+            let gameRunning = false;
+            let menuAnimRunning = false;
+            let tileSize = 20;
+            let tileCountX, tileCountY;
+            let offsetX = 0, offsetY = 0;
+            let gameInterval;
+            let menuInterval;
+
+            // Constantes de Layout
+            const HEADER_HEIGHT = 60;
+            const SIDE_MARGIN = 20;
+            const TARGET_SIZE = 1000; // Tamanho alvo da área de jogo
+
+            // Ajusta o Canvas e a Grid
+            function resizeCanvas() {
+                screenWidth = window.innerWidth;
+                screenHeight = window.innerHeight;
+                canvas.width = screenWidth;
+                canvas.height = screenHeight;
+
+                if (!gameRunning && !menuAnimRunning) setupBoundaries();
+
+                // MODO MENU: Tela cheia
+                if (!gameRunning) {
+                    tileCountX = Math.floor(screenWidth / tileSize);
+                    tileCountY = Math.floor(screenHeight / tileSize);
+                    offsetX = 0;
+                    offsetY = 0;
+                } else {
+                    // MODO JOGO: Área restrita (Max 1000x1000)
+                    let availableWidth = screenWidth - (SIDE_MARGIN * 2);
+                    let availableHeight = screenHeight - HEADER_HEIGHT - SIDE_MARGIN;
+                    let gameSize = Math.min(TARGET_SIZE, availableWidth, availableHeight);
+
+                    tileCountX = Math.floor(gameSize / tileSize);
+                    tileCountY = Math.floor(gameSize / tileSize);
+
+                    const gridPixelWidth = tileCountX * tileSize;
+                    const gridPixelHeight = tileCountY * tileSize;
+
+                    // Centraliza
+                    offsetX = Math.floor((screenWidth - gridPixelWidth) / 2);
+                    const availableSpaceY = screenHeight - HEADER_HEIGHT;
+                    offsetY = HEADER_HEIGHT + Math.floor((availableSpaceY - gridPixelHeight) / 2);
+                }
+            }
+
+            resizeCanvas();
+            window.addEventListener('resize', () => {
+                resizeCanvas();
+                // Se redimensionar no menu, reinicia UI para não quebrar alinhamento
+                if (!gameRunning) {
+                    domEntities.forEach(ent => World.remove(world, ent.body));
+                    domEntities = [];
+                    setupBoundaries();
+                    createPhysicsBody('title-box');
+                    createPhysicsBody('pc-option');
+                    createPhysicsBody('mobile-option');
+                    createPhysicsBody('hub-option');
+                }
+            });
+
+            // Variáveis Jogo
+            let px = 10, py = 10;
+            let vx = 0, vy = 0;
+            let trail = [];
+            let tail = 5;
+            let ax = 15, ay = 15;
+            let score = 0;
+
+            // Variáveis Menu (Background)
+            let bgPx = 0, bgPy = 0;
+            let bgVx = 1, bgVy = 0;
+            let bgTrail = [];
+            let bgTail = 5;
+            let bgApples = [];
+
+            // --- ANIMAÇÃO DE FUNDO DO MENU ---
+            function startMenuAnimation() {
+                menuAnimRunning = true;
+                resizeCanvas();
+
+                bgTrail = [];
+                bgTail = 5;
+                bgPx = Math.floor(tileCountX / 2);
+                bgPy = Math.floor(tileCountY / 2);
+                bgVx = 1; bgVy = 0;
+
+                // Cria 15 maçãs aleatórias
+                bgApples = [];
+                for (let i = 0; i < 15; i++) {
+                    bgApples.push({
+                        x: Math.floor(Math.random() * tileCountX),
+                        y: Math.floor(Math.random() * tileCountY)
+                    });
+                }
+
+                if (menuInterval) clearInterval(menuInterval);
+                menuInterval = setInterval(menuLoop, 1000 / 15);
+            }
+
+            function stopMenuAnimation() {
+                menuAnimRunning = false;
+                if (menuInterval) clearInterval(menuInterval);
+            }
+
+            function menuLoop() {
+                if (!menuAnimRunning) return;
+
+                // IA Simples: Persegue maçã mais próxima
+                let closestApple = null;
+                let minDist = Infinity;
+
+                bgApples.forEach(apple => {
+                    let dist = Math.abs(bgPx - apple.x) + Math.abs(bgPy - apple.y);
+                    if (dist < minDist) {
+                        minDist = dist;
+                        closestApple = apple;
+                    }
+                });
+
+                if (closestApple) {
+                    if (closestApple.x > bgPx && bgVx !== -1) { bgVx = 1; bgVy = 0; }
+                    else if (closestApple.x < bgPx && bgVx !== 1) { bgVx = -1; bgVy = 0; }
+                    else if (closestApple.y > bgPy && bgVy !== -1) { bgVx = 0; bgVy = 1; }
+                    else if (closestApple.y < bgPy && bgVy !== 1) { bgVx = 0; bgVy = -1; }
+                }
+
+                bgPx += bgVx;
+                bgPy += bgVy;
+
+                // Wrap around (infinito)
+                if (bgPx < 0) bgPx = tileCountX - 1;
+                if (bgPx >= tileCountX) bgPx = 0;
+                if (bgPy < 0) bgPy = tileCountY - 1;
+                if (bgPy >= tileCountY) bgPy = 0;
+
+                bgTrail.push({ x: bgPx, y: bgPy });
+                while (bgTrail.length > bgTail) {
+                    bgTrail.shift();
+                }
+
+                // Comer no menu
+                for (let i = 0; i < bgApples.length; i++) {
+                    if (bgApples[i].x === bgPx && bgApples[i].y === bgPy) {
+                        bgTail++;
+                        bgApples[i].x = Math.floor(Math.random() * tileCountX);
+                        bgApples[i].y = Math.floor(Math.random() * tileCountY);
+                    }
+                }
+
+                // Desenho Menu
+                ctx.fillStyle = "#2d3436";
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                // Cobra (Escura)
+                for (let i = 0; i < bgTrail.length; i++) {
+                    drawPixelBlock(bgTrail[i].x, bgTrail[i].y, "#3e4a4c", "#4b5a5c", "#2f3839");
+                }
+                // Maçãs (Escuras)
+                for (let i = 0; i < bgApples.length; i++) {
+                    drawPixelBlock(bgApples[i].x, bgApples[i].y, "#634040", "#754b4b", "#4d3333");
+                }
+            }
+
+            // --- LÓGICA DO JOGO PRINCIPAL ---
+            function initSnakeGame() {
+                gameRunning = true;
+                resizeCanvas();
+                document.getElementById('score-board').style.display = 'block';
+
+                score = 0;
+                tail = 5;
+                px = Math.floor(tileCountX / 2);
+                py = Math.floor(tileCountY / 2);
+                vx = 1; vy = 0;
+                updateScore();
+                spawnApple();
+
+                if (gameInterval) clearInterval(gameInterval);
+                gameInterval = setInterval(gameLoop, 1000 / 12);
+            }
+
+            function stopGame() {
+                gameRunning = false;
+                if (gameInterval) clearInterval(gameInterval);
+            }
+
+            function spawnApple() {
+                ax = Math.floor(Math.random() * tileCountX);
+                ay = Math.floor(Math.random() * tileCountY);
+                // Garante que não nasce na cobra
+                while (trail.some(t => t.x === ax && t.y === ay)) {
+                    ax = Math.floor(Math.random() * tileCountX);
+                    ay = Math.floor(Math.random() * tileCountY);
+                }
+            }
+
+            function gameOver() {
+                stopGame();
+                drawGameScene(true); // Desenha com olhos mortos
+                setTimeout(() => {
+                    initMenu();
+                }, 1500);
+            }
+
+            function updateScore() {
+                const scoreEl = document.getElementById('score-board');
+                if (scoreEl) scoreEl.innerText = "SCORE: " + score;
+            }
+
+            // Função de desenho de bloco (estilo 3D/Pixel)
+            function drawPixelBlock(x, y, colorBase, colorLight, colorDark) {
+                let drawX = offsetX + x * tileSize;
+                let drawY = offsetY + y * tileSize;
+
+                // Base
+                ctx.fillStyle = colorBase;
+                ctx.fillRect(drawX, drawY, tileSize, tileSize);
+
+                // Luz (Topo/Esquerda)
+                ctx.fillStyle = colorLight;
+                ctx.fillRect(drawX, drawY, tileSize, 4);
+                ctx.fillRect(drawX, drawY, 4, tileSize);
+
+                // Sombra (Baixo/Direita)
+                ctx.fillStyle = colorDark;
+                ctx.fillRect(drawX, drawY + tileSize - 4, tileSize, 4);
+                ctx.fillRect(drawX + tileSize - 4, drawY, 4, tileSize);
+            }
+
+            function drawGameScene(isDead = false) {
+                // Limpa tela
+                ctx.fillStyle = "#2d3436";
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                // Borda da área jogável
+                if (gameRunning || isDead) {
+                    ctx.strokeStyle = "#636e72";
+                    ctx.lineWidth = 4;
+                    ctx.strokeRect(offsetX - 2, offsetY - 2, (tileCountX * tileSize) + 4, (tileCountY * tileSize) + 4);
+                }
+
+                // Cobra
+                for (let i = 0; i < trail.length; i++) {
+                    let isHead = (i === trail.length - 1);
+                    let baseColor = isDead ? "#b2bec3" : "#55efc4";
+                    let lightColor = isDead ? "#dfe6e9" : "#aaffea";
+                    let darkColor = isDead ? "#636e72" : "#00b894";
+
+                    drawPixelBlock(trail[i].x, trail[i].y, baseColor, lightColor, darkColor);
+
+                    if (isHead) {
+                        let drawX = offsetX + trail[i].x * tileSize;
+                        let drawY = offsetY + trail[i].y * tileSize;
+
+                        ctx.fillStyle = "#2d3436";
+                        let eyeSize = 4;
+
+                        if (isDead) {
+                            // Olhos X X
+                            ctx.strokeStyle = "#2d3436";
+                            ctx.lineWidth = 2;
+                            drawXSign(drawX + 4, drawY + 4, 6);
+                            drawXSign(drawX + tileSize - 10, drawY + 4, 6);
+                        } else {
+                            // Olhos normais (direcionais)
+                            if (vx === 1) {
+                                ctx.fillRect(drawX + tileSize - 6, drawY + 4, eyeSize, eyeSize);
+                                ctx.fillRect(drawX + tileSize - 6, drawY + tileSize - 8, eyeSize, eyeSize);
+                            } else if (vx === -1) {
+                                ctx.fillRect(drawX + 2, drawY + 4, eyeSize, eyeSize);
+                                ctx.fillRect(drawX + 2, drawY + tileSize - 8, eyeSize, eyeSize);
+                            } else if (vy === -1) {
+                                ctx.fillRect(drawX + 4, drawY + 2, eyeSize, eyeSize);
+                                ctx.fillRect(drawX + tileSize - 8, drawY + 2, eyeSize, eyeSize);
+                            } else {
+                                ctx.fillRect(drawX + 4, drawY + tileSize - 6, eyeSize, eyeSize);
+                                ctx.fillRect(drawX + tileSize - 8, drawY + tileSize - 6, eyeSize, eyeSize);
+                            }
+                        }
+                    }
+                }
+
+                // Maçã
+                drawPixelBlock(ax, ay, "#ff7675", "#ffb8b8", "#d63031");
+            }
+
+            function drawXSign(x, y, size) {
+                ctx.beginPath();
+                ctx.moveTo(x, y);
+                ctx.lineTo(x + size, y + size);
+                ctx.moveTo(x + size, y);
+                ctx.lineTo(x, y + size);
+                ctx.stroke();
+            }
+
+            function gameLoop() {
+                if (!gameRunning) return;
+
+                px += vx;
+                py += vy;
+
+                // Game Over: Paredes
+                if (px < 0 || px >= tileCountX || py < 0 || py >= tileCountY) {
+                    gameOver();
+                    return;
+                }
+
+                // Game Over: Colisão Própria
+                for (let i = 0; i < trail.length; i++) {
+                    if (trail[i].x == px && trail[i].y == py) {
+                        gameOver();
+                        return;
+                    }
+                }
+
+                trail.push({ x: px, y: py });
+                while (trail.length > tail) {
+                    trail.shift();
+                }
+
+                // Comer
+                if (ax == px && ay == py) {
+                    tail++;
+                    score++;
+                    updateScore();
+                    spawnApple();
+                }
+
+                drawGameScene(false);
+            }
+
+            // ==========================================
+            // 3. CONTROLES (TECLADO & TOUCH)
+            // ==========================================
+            document.addEventListener('keydown', (e) => {
+                if (!gameRunning) return;
+                switch (e.keyCode) {
+                    case 37: if (vx !== 1) { vx = -1; vy = 0; } break; // Left
+                    case 38: if (vy !== 1) { vx = 0; vy = -1; } break; // Up
+                    case 39: if (vx !== -1) { vx = 1; vy = 0; } break; // Right
+                    case 40: if (vy !== -1) { vx = 0; vy = 1; } break; // Down
+                }
+            });
+
+            let touchStartX = 0;
+            let touchStartY = 0;
+
+            document.addEventListener('touchstart', (e) => {
+                touchStartX = e.touches[0].clientX;
+                touchStartY = e.touches[0].clientY;
+            }, { passive: false });
+
+            document.addEventListener('touchmove', (e) => {
+                if (gameRunning) e.preventDefault();
+            }, { passive: false });
+
+            document.addEventListener('touchend', (e) => {
+                if (!gameRunning) return;
+                let touchEndX = e.changedTouches[0].clientX;
+                let touchEndY = e.changedTouches[0].clientY;
+                handleSwipe(touchStartX, touchStartY, touchEndX, touchEndY);
+            }, { passive: false });
+
+            function handleSwipe(x1, y1, x2, y2) {
+                let xDiff = x2 - x1;
+                let yDiff = y2 - y1;
+                // Sensibilidade do swipe
+                if (Math.abs(xDiff) < 30 && Math.abs(yDiff) < 30) return;
+
+                if (Math.abs(xDiff) > Math.abs(yDiff)) {
+                    if (xDiff > 0 && vx !== -1) { vx = 1; vy = 0; }
+                    else if (xDiff < 0 && vx !== 1) { vx = -1; vy = 0; }
+                } else {
+                    if (yDiff > 0 && vy !== -1) { vx = 0; vy = 1; }
+                    else if (yDiff < 0 && vy !== 1) { vx = 0; vy = -1; }
+                }
+            }
+
+            // Inicia tudo
+            initMenu();
+
+        })();
+    </script>
+</body>
+
+</html>
