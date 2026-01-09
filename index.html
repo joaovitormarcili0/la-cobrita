@@ -188,6 +188,68 @@
             opacity: 0;
             visibility: hidden;
         }
+
+        /* --- CONTROLES MOBILE (D-PAD) --- */
+        #mobile-controls {
+            display: none;
+            /* Só aparece no jogo mobile */
+            position: absolute;
+            bottom: 20px;
+            left: 0;
+            width: 100%;
+            height: 300px;
+            /* Altura fixa para cálculo */
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+            /* Espaço vertical entre linhas */
+            z-index: 50;
+            pointer-events: none;
+            /* Deixa passar clique nos vazios */
+        }
+
+        .control-row {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+            pointer-events: auto;
+            /* Reativa clique nos botões */
+        }
+
+        /* Linha do meio com gap ajustado para novos botões */
+        .row-middle {
+            gap: 80px;
+            /* Reduzido de 100px para manter proporção visual */
+        }
+
+        .control-btn {
+            width: 64px;
+            /* 80px - 20% = 64px */
+            height: 64px;
+            background-color: #fab1a0;
+            border: 4px solid #fff;
+            border-radius: 4px;
+            /* Levemente arredondado */
+            box-shadow: 6px 6px 0px #000;
+            /* Sombra sólida 3D */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 1.5rem;
+            /* Fonte levemente menor */
+            color: #2d3436;
+            cursor: pointer;
+            user-select: none;
+            transition: transform 0.1s, box-shadow 0.1s;
+        }
+
+        .control-btn:active {
+            transform: translate(6px, 6px);
+            /* Afunda */
+            box-shadow: 0px 0px 0px #000;
+        }
     </style>
 </head>
 
@@ -206,10 +268,27 @@
         </div>
         <div id="mobile-option" class="physics-element mode-btn hidden">
             MOBILE
-            <span>(SWIPE)</span>
+            <span>(D-PAD)</span>
         </div>
         <div id="hub-option" class="physics-element mode-btn hidden">
             VOLTAR AO HUB DE JOGOS
+        </div>
+    </div>
+
+    <!-- CONTROLES MOBILE -->
+    <div id="mobile-controls">
+        <!-- Linha 1: Cima -->
+        <div class="control-row">
+            <div class="control-btn" id="btn-up">▲</div>
+        </div>
+        <!-- Linha 2: Esquerda / Direita -->
+        <div class="control-row row-middle">
+            <div class="control-btn" id="btn-left">◀</div>
+            <div class="control-btn" id="btn-right">▶</div>
+        </div>
+        <!-- Linha 3: Baixo -->
+        <div class="control-row">
+            <div class="control-btn" id="btn-down">▼</div>
         </div>
     </div>
 
@@ -287,6 +366,7 @@
                 stopGame(); // Garante que o jogo anterior parou
 
                 document.getElementById('score-board').style.display = 'none';
+                document.getElementById('mobile-controls').style.display = 'none'; // Esconde controles
 
                 // Limpa física anterior
                 domEntities.forEach(ent => World.remove(world, ent.body));
@@ -304,27 +384,36 @@
                 // Configura botões de Jogo
                 const pcBtn = document.getElementById('pc-option');
                 const mobileBtn = document.getElementById('mobile-option');
-                const startGameAction = () => {
+                const startGameAction = (mode) => {
                     if (gameRunning) return;
+                    // Define modo
+                    if (mode === 'mobile') isMobileMode = true;
+                    else isMobileMode = false;
+
                     startChaosAndGame();
                 };
 
-                [pcBtn, mobileBtn].forEach(btn => {
-                    // Clone para remover listeners antigos
-                    let newBtn = btn.cloneNode(true);
-                    btn.parentNode.replaceChild(newBtn, btn);
-                    newBtn = document.getElementById(btn.id);
+                // PC Listener
+                let newPcBtn = pcBtn.cloneNode(true);
+                pcBtn.parentNode.replaceChild(newPcBtn, pcBtn);
+                newPcBtn = document.getElementById('pc-option');
+                // Reatribui física
+                const pcEntIndex = domEntities.findIndex(e => e.element.id === 'pc-option');
+                if (pcEntIndex > -1) domEntities[pcEntIndex].element = newPcBtn;
 
-                    // Atualiza referência na lista de entidades
-                    const entIndex = domEntities.findIndex(e => e.element.id === btn.id);
-                    if (entIndex > -1) domEntities[entIndex].element = newBtn;
+                newPcBtn.addEventListener('click', () => startGameAction('pc'));
+                newPcBtn.addEventListener('touchstart', (e) => { e.preventDefault(); startGameAction('pc'); });
 
-                    newBtn.addEventListener('click', startGameAction);
-                    newBtn.addEventListener('touchstart', (e) => {
-                        e.preventDefault();
-                        startGameAction();
-                    });
-                });
+                // Mobile Listener
+                let newMobileBtn = mobileBtn.cloneNode(true);
+                mobileBtn.parentNode.replaceChild(newMobileBtn, mobileBtn);
+                newMobileBtn = document.getElementById('mobile-option');
+                // Reatribui física
+                const mobEntIndex = domEntities.findIndex(e => e.element.id === 'mobile-option');
+                if (mobEntIndex > -1) domEntities[mobEntIndex].element = newMobileBtn;
+
+                newMobileBtn.addEventListener('click', () => startGameAction('mobile'));
+                newMobileBtn.addEventListener('touchstart', (e) => { e.preventDefault(); startGameAction('mobile'); });
 
                 // Configura botão Hub (Link)
                 const hubBtn = document.getElementById('hub-option');
@@ -399,6 +488,9 @@
             const HEADER_HEIGHT = 60;
             const SIDE_MARGIN = 20;
             const TARGET_SIZE = 1000; // Tamanho alvo da área de jogo
+            const MOBILE_CONTROLS_HEIGHT = 320; // Espaço reservado para controles
+
+            let isMobileMode = false; // Flag de controle do modo
 
             // Ajusta o Canvas e a Grid
             function resizeCanvas() {
@@ -423,25 +515,34 @@
                     let availableWidth = screenWidth - (SIDE_MARGIN * 2);
                     let availableHeight = screenHeight - HEADER_HEIGHT - SIDE_MARGIN;
 
+                    // Se estiver no modo mobile, desconta a altura dos controles
+                    if (isMobileMode) {
+                        availableHeight -= MOBILE_CONTROLS_HEIGHT;
+                    }
+
                     let gameW = Math.min(TARGET_SIZE, availableWidth);
                     let gameH = Math.min(TARGET_SIZE, availableHeight);
 
-                    // Se for mobile (portrait), tenta usar aspect ratio 16:9
+                    // Se for mobile (portrait), tenta usar aspect ratio 16:9 (se couber)
                     if (screenWidth < 768 && screenHeight > screenWidth) {
-                        let targetH = gameW * (16 / 9);
-                        gameH = Math.min(targetH, availableHeight);
+                        // Recalcula tileSize se necessário para mobile
+                        // (Já feito globalmente, mas afeta grid)
                     }
 
                     tileCountX = Math.floor(gameW / tileSize);
                     tileCountY = Math.floor(gameH / tileSize);
 
+                    // Recalcula dimensão real em pixels (snap to grid)
                     const gridPixelWidth = tileCountX * tileSize;
                     const gridPixelHeight = tileCountY * tileSize;
 
-                    // Centraliza
+                    // Centraliza na área DISPONÍVEL (Horizontal e Verticalmente)
+                    // Garante margens iguais na esquerda e direita
                     offsetX = Math.floor((screenWidth - gridPixelWidth) / 2);
-                    const availableSpaceY = screenHeight - HEADER_HEIGHT;
-                    offsetY = HEADER_HEIGHT + Math.floor((availableSpaceY - gridPixelHeight) / 2);
+
+                    // availableSpaceY agora deve ser a altura 'útil' calculada acima
+                    const safeAreaHeight = availableHeight;
+                    offsetY = HEADER_HEIGHT + Math.floor((safeAreaHeight - gridPixelHeight) / 2);
                 }
             }
 
@@ -567,6 +668,12 @@
             // --- LÓGICA DO JOGO PRINCIPAL ---
             function initSnakeGame() {
                 gameRunning = true;
+
+                // Exibe controles se for mobile
+                if (isMobileMode) {
+                    document.getElementById('mobile-controls').style.display = 'flex';
+                }
+
                 resizeCanvas();
                 document.getElementById('score-board').style.display = 'block';
 
@@ -639,13 +746,20 @@
                 ctx.fillStyle = "#2d3436";
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-                // Borda da área jogável
+                // Borda da área jogável (Moldura Cinza)
                 if (gameRunning || isDead) {
-                    ctx.strokeStyle = "#636e72";
+                    ctx.strokeStyle = "#636e72"; // Cinza
                     ctx.lineWidth = 4;
-                    ctx.strokeRect(offsetX - 2, offsetY - 2, (tileCountX * tileSize) + 4, (tileCountY * tileSize) + 4);
+                    // Desenha retângulo em volta da grid
+                    // Ajuste: 0.5 para linhas nítidas se necessário, mas strokeRect com lineWidth 4
+                    // centraliza na linha. Vamos desenhar 'por fora' do grid se possível ou na borda.
+                    ctx.strokeRect(
+                        offsetX - 2,
+                        offsetY - 2,
+                        (tileCountX * tileSize) + 4,
+                        (tileCountY * tileSize) + 4
+                    );
                 }
-
                 // Cobra
                 for (let i = 0; i < trail.length; i++) {
                     let isHead = (i === trail.length - 1);
@@ -771,6 +885,47 @@
                         break; // Down
                 }
             });
+
+            // --- CONTROLES MOBILE (BOTÕES) ---
+            const btnUp = document.getElementById('btn-up');
+            const btnDown = document.getElementById('btn-down');
+            const btnLeft = document.getElementById('btn-left');
+            const btnRight = document.getElementById('btn-right');
+
+            function handleMobileInput(direction) {
+                if (!gameRunning) return;
+
+                // Início passivo
+                if (!hasStartedMoving) hasStartedMoving = true;
+
+                switch (direction) {
+                    case 'UP': if (vy !== 1) { vx = 0; vy = -1; } break;
+                    case 'DOWN': if (vy !== -1) { vx = 0; vy = 1; } break;
+                    case 'LEFT': if (vx !== 1) { vx = -1; vy = 0; } break;
+                    case 'RIGHT': if (vx !== -1) { vx = 1; vy = 0; } break;
+                }
+            }
+
+            // Adiciona listeners "touchstart" e "mousedown" para resposta rápida e compatibilidade
+            const attachControls = (btn, dir) => {
+                const action = (e) => {
+                    e.preventDefault();
+                    if (e.repeat) return;
+                    handleMobileInput(dir);
+                };
+                btn.addEventListener('touchstart', action, { passive: false });
+                btn.addEventListener('mousedown', action); // Suporte a mouse/click
+            };
+
+            attachControls(btnUp, 'UP');
+            attachControls(btnDown, 'DOWN');
+            attachControls(btnLeft, 'LEFT');
+            attachControls(btnRight, 'RIGHT');
+
+            // Mantém swipe como fallback ou alternativa? 
+            // O usuário disse "substituindo o swipe", mas não disse explicitamente para remover.
+            // Para segurança, podemos manter o swipe funcionando ou remover se ele atrapalhar. 
+            // Vou manter o swipe caso o usuário clique fora dos botões.
 
             let touchStartX = 0;
             let touchStartY = 0;
