@@ -393,6 +393,9 @@
                 canvas.width = screenWidth;
                 canvas.height = screenHeight;
 
+                // Ajusta tamanho da cobra/comida no mobile (metade do tamanho)
+                tileSize = (screenWidth < 768) ? 10 : 20;
+
                 if (!gameRunning && !menuAnimRunning) setupBoundaries();
 
                 // MODO MENU: Tela cheia
@@ -402,13 +405,21 @@
                     offsetX = 0;
                     offsetY = 0;
                 } else {
-                    // MODO JOGO: Área restrita (Max 1000x1000)
+                    // MODO JOGO: Área restrita (Max 1000x1000 ou 16:9 mobile)
                     let availableWidth = screenWidth - (SIDE_MARGIN * 2);
                     let availableHeight = screenHeight - HEADER_HEIGHT - SIDE_MARGIN;
-                    let gameSize = Math.min(TARGET_SIZE, availableWidth, availableHeight);
 
-                    tileCountX = Math.floor(gameSize / tileSize);
-                    tileCountY = Math.floor(gameSize / tileSize);
+                    let gameW = Math.min(TARGET_SIZE, availableWidth);
+                    let gameH = Math.min(TARGET_SIZE, availableHeight);
+
+                    // Se for mobile (portrait), tenta usar aspect ratio 16:9
+                    if (screenWidth < 768 && screenHeight > screenWidth) {
+                        let targetH = gameW * (16 / 9);
+                        gameH = Math.min(targetH, availableHeight);
+                    }
+
+                    tileCountX = Math.floor(gameW / tileSize);
+                    tileCountY = Math.floor(gameH / tileSize);
 
                     const gridPixelWidth = tileCountX * tileSize;
                     const gridPixelHeight = tileCountY * tileSize;
@@ -438,6 +449,7 @@
             // Variáveis Jogo
             let px = 10, py = 10;
             let vx = 0, vy = 0;
+            let hasStartedMoving = false;
             let trail = [];
             let tail = 5;
             let ax = 15, ay = 15;
@@ -545,10 +557,11 @@
                 document.getElementById('score-board').style.display = 'block';
 
                 score = 0;
-                tail = 5;
-                px = Math.floor(tileCountX / 2);
+                tail = 5; px = Math.floor(tileCountX / 2);
                 py = Math.floor(tileCountY / 2);
-                vx = 1; vy = 0;
+                vx = 0; vy = 0; // Começa parado
+                hasStartedMoving = false;
+
                 updateScore();
                 spawnApple();
 
@@ -589,19 +602,22 @@
                 let drawX = offsetX + x * tileSize;
                 let drawY = offsetY + y * tileSize;
 
+                // Calcula tamanho da borda proporcional (min 1px)
+                let border = Math.max(1, Math.floor(tileSize * 0.2));
+
                 // Base
                 ctx.fillStyle = colorBase;
                 ctx.fillRect(drawX, drawY, tileSize, tileSize);
 
                 // Luz (Topo/Esquerda)
                 ctx.fillStyle = colorLight;
-                ctx.fillRect(drawX, drawY, tileSize, 4);
-                ctx.fillRect(drawX, drawY, 4, tileSize);
+                ctx.fillRect(drawX, drawY, tileSize, border);
+                ctx.fillRect(drawX, drawY, border, tileSize);
 
                 // Sombra (Baixo/Direita)
                 ctx.fillStyle = colorDark;
-                ctx.fillRect(drawX, drawY + tileSize - 4, tileSize, 4);
-                ctx.fillRect(drawX + tileSize - 4, drawY, 4, tileSize);
+                ctx.fillRect(drawX, drawY + tileSize - border, tileSize, border);
+                ctx.fillRect(drawX + tileSize - border, drawY, border, tileSize);
             }
 
             function drawGameScene(isDead = false) {
@@ -630,28 +646,33 @@
                         let drawY = offsetY + trail[i].y * tileSize;
 
                         ctx.fillStyle = "#2d3436";
-                        let eyeSize = 4;
+                        // Olho proporcional
+                        let eyeSize = Math.max(2, Math.floor(tileSize * 0.2));
+                        let border = Math.max(1, Math.floor(tileSize * 0.2));
+                        // Offset do olho (distancia da borda)
+                        let eyeOffset = border * 1.5;
 
                         if (isDead) {
                             // Olhos X X
                             ctx.strokeStyle = "#2d3436";
-                            ctx.lineWidth = 2;
-                            drawXSign(drawX + 4, drawY + 4, 6);
-                            drawXSign(drawX + tileSize - 10, drawY + 4, 6);
+                            ctx.lineWidth = Math.max(1, border / 2);
+                            let xSize = Math.max(3, tileSize * 0.3);
+                            drawXSign(drawX + eyeOffset, drawY + eyeOffset, xSize);
+                            drawXSign(drawX + tileSize - eyeOffset - xSize, drawY + eyeOffset, xSize);
                         } else {
                             // Olhos normais (direcionais)
-                            if (vx === 1) {
-                                ctx.fillRect(drawX + tileSize - 6, drawY + 4, eyeSize, eyeSize);
-                                ctx.fillRect(drawX + tileSize - 6, drawY + tileSize - 8, eyeSize, eyeSize);
-                            } else if (vx === -1) {
-                                ctx.fillRect(drawX + 2, drawY + 4, eyeSize, eyeSize);
-                                ctx.fillRect(drawX + 2, drawY + tileSize - 8, eyeSize, eyeSize);
-                            } else if (vy === -1) {
-                                ctx.fillRect(drawX + 4, drawY + 2, eyeSize, eyeSize);
-                                ctx.fillRect(drawX + tileSize - 8, drawY + 2, eyeSize, eyeSize);
-                            } else {
-                                ctx.fillRect(drawX + 4, drawY + tileSize - 6, eyeSize, eyeSize);
-                                ctx.fillRect(drawX + tileSize - 8, drawY + tileSize - 6, eyeSize, eyeSize);
+                            if (vx === 1) { // Right
+                                ctx.fillRect(drawX + tileSize - eyeOffset - eyeSize, drawY + eyeOffset, eyeSize, eyeSize);
+                                ctx.fillRect(drawX + tileSize - eyeOffset - eyeSize, drawY + tileSize - eyeOffset - eyeSize, eyeSize, eyeSize);
+                            } else if (vx === -1) { // Left
+                                ctx.fillRect(drawX + eyeOffset, drawY + eyeOffset, eyeSize, eyeSize);
+                                ctx.fillRect(drawX + eyeOffset, drawY + tileSize - eyeOffset - eyeSize, eyeSize, eyeSize);
+                            } else if (vy === -1) { // Up
+                                ctx.fillRect(drawX + eyeOffset, drawY + eyeOffset, eyeSize, eyeSize);
+                                ctx.fillRect(drawX + tileSize - eyeOffset - eyeSize, drawY + eyeOffset, eyeSize, eyeSize);
+                            } else { // Down
+                                ctx.fillRect(drawX + eyeOffset, drawY + tileSize - eyeOffset - eyeSize, eyeSize, eyeSize);
+                                ctx.fillRect(drawX + tileSize - eyeOffset - eyeSize, drawY + tileSize - eyeOffset - eyeSize, eyeSize, eyeSize);
                             }
                         }
                     }
@@ -672,6 +693,12 @@
 
             function gameLoop() {
                 if (!gameRunning) return;
+
+                // Se ainda não começou a mover, apenas desenha a cena estática
+                if (!hasStartedMoving) {
+                    drawGameScene(false);
+                    return;
+                }
 
                 px += vx;
                 py += vy;
@@ -712,10 +739,22 @@
             document.addEventListener('keydown', (e) => {
                 if (!gameRunning) return;
                 switch (e.keyCode) {
-                    case 37: if (vx !== 1) { vx = -1; vy = 0; } break; // Left
-                    case 38: if (vy !== 1) { vx = 0; vy = -1; } break; // Up
-                    case 39: if (vx !== -1) { vx = 1; vy = 0; } break; // Right
-                    case 40: if (vy !== -1) { vx = 0; vy = 1; } break; // Down
+                    case 37:
+                        if (!hasStartedMoving) { vx = -1; vy = 0; hasStartedMoving = true; }
+                        else if (vx !== 1) { vx = -1; vy = 0; }
+                        break; // Left
+                    case 38:
+                        if (!hasStartedMoving) { vx = 0; vy = -1; hasStartedMoving = true; }
+                        else if (vy !== 1) { vx = 0; vy = -1; }
+                        break; // Up
+                    case 39:
+                        if (!hasStartedMoving) { vx = 1; vy = 0; hasStartedMoving = true; }
+                        else if (vx !== -1) { vx = 1; vy = 0; }
+                        break; // Right
+                    case 40:
+                        if (!hasStartedMoving) { vx = 0; vy = 1; hasStartedMoving = true; }
+                        else if (vy !== -1) { vx = 0; vy = 1; }
+                        break; // Down
                 }
             });
 
@@ -745,11 +784,17 @@
                 if (Math.abs(xDiff) < 30 && Math.abs(yDiff) < 30) return;
 
                 if (Math.abs(xDiff) > Math.abs(yDiff)) {
-                    if (xDiff > 0 && vx !== -1) { vx = 1; vy = 0; }
-                    else if (xDiff < 0 && vx !== 1) { vx = -1; vy = 0; }
+                    if (xDiff > 0) {
+                        if (!hasStartedMoving || vx !== -1) { vx = 1; vy = 0; hasStartedMoving = true; }
+                    } else {
+                        if (!hasStartedMoving || vx !== 1) { vx = -1; vy = 0; hasStartedMoving = true; }
+                    }
                 } else {
-                    if (yDiff > 0 && vy !== -1) { vx = 0; vy = 1; }
-                    else if (yDiff < 0 && vy !== 1) { vx = 0; vy = -1; }
+                    if (yDiff > 0) {
+                        if (!hasStartedMoving || vy !== -1) { vx = 0; vy = 1; hasStartedMoving = true; }
+                    } else {
+                        if (!hasStartedMoving || vy !== 1) { vx = 0; vy = -1; hasStartedMoving = true; }
+                    }
                 }
             }
 
